@@ -22,7 +22,7 @@ import {
   parseCommandTopic,
   getCommandTopicPatterns,
 } from './topicBuilder';
-import { publishThermostatDiscovery } from './HomeAssistantDiscovery';
+import { publishThermostatDiscovery, removeDeviceDiscovery } from './HomeAssistantDiscovery';
 import {
   getDeviceTemperatureScale,
   convertTemperature,
@@ -43,6 +43,7 @@ export class MqttIntegration extends BaseIntegration {
   private subscriptionManager: SubscriptionManager;
   private userDeviceSerials: Set<string> = new Set();
   private isReady: boolean = false;
+  private deviceWatchInterval: NodeJS.Timeout | null = null;
 
   constructor(
     userId: string,
@@ -82,11 +83,104 @@ export class MqttIntegration extends BaseIntegration {
 
       await this.publishInitialState();
 
+      this.startDeviceWatching();
+
       this.isReady = true;
       console.log(`[MQTT:${this.userId}] Integration initialized successfully`);
     } catch (error) {
       console.error(`[MQTT:${this.userId}] Failed to initialize:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Start polling for device changes
+   */
+  private startDeviceWatching(): void {
+    if (this.deviceWatchInterval) {
+      clearInterval(this.deviceWatchInterval);
+    }
+
+    this.deviceWatchInterval = setInterval(async () => {
+      await this.checkForDeviceChanges();
+    }, 10000);
+
+    console.log(`[MQTT:${this.userId}] Started watching for device changes (polling every 10s)`);
+  }
+
+  /**
+   * Check for added/removed devices and update accordingly
+   */
+  private async checkForDeviceChanges(): Promise<void> {
+    if (!this.isReady) return;
+
+    try {
+      const ownedDevices = await this.deviceStateManager.listUserDevices(this.userId);
+      const sharedDevices = await this.deviceStateManager.getSharedWithMe(this.userId);
+
+      const currentSerials = new Set<string>();
+      for (const device of ownedDevices) {
+        currentSerials.add(device.serial);
+      }
+      for (const share of sharedDevices) {
+        currentSerials.add(share.serial);
+      }
+
+      // Detect removed devices
+      for (const serial of this.userDeviceSerials) {
+        if (!currentSerials.has(serial)) {
+          console.log(`[MQTT:${this.userId}] Device ${serial} was removed, cleaning up...`);
+          await this.handleDeviceRemoved(serial);
+        }
+      }
+
+      // Detect added devices
+      for (const serial of currentSerials) {
+        if (!this.userDeviceSerials.has(serial)) {
+          console.log(`[MQTT:${this.userId}] New device ${serial} detected, publishing discovery...`);
+          this.userDeviceSerials.add(serial);
+
+          // Publish discovery for new device
+          if (this.config.homeAssistantDiscovery && this.client) {
+            try {
+              await publishThermostatDiscovery(
+                this.client,
+                serial,
+                this.deviceState,
+                this.config.topicPrefix!,
+                this.config.discoveryPrefix!
+              );
+              await this.publishHomeAssistantState(serial);
+              await this.publishAvailability(serial, 'online');
+            } catch (error) {
+              console.error(`[MQTT:${this.userId}] Failed to publish discovery for new device ${serial}:`, error);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[MQTT:${this.userId}] Error checking for device changes:`, error);
+    }
+  }
+
+  /**
+   * Handle device removal - clean up HA discovery
+   */
+  private async handleDeviceRemoved(serial: string): Promise<void> {
+    // Remove from local tracking
+    this.userDeviceSerials.delete(serial);
+
+    // Mark device as offline
+    await this.publishAvailability(serial, 'offline');
+
+    // Remove Home Assistant discovery (publishes empty payloads)
+    if (this.config.homeAssistantDiscovery && this.client) {
+      try {
+        await removeDeviceDiscovery(this.client, serial, this.config.discoveryPrefix!);
+        console.log(`[MQTT:${this.userId}] Successfully removed device ${serial} from Home Assistant`);
+      } catch (error) {
+        console.error(`[MQTT:${this.userId}] Failed to remove discovery for ${serial}:`, error);
+      }
     }
   }
 
@@ -653,6 +747,11 @@ export class MqttIntegration extends BaseIntegration {
    */
   async shutdown(): Promise<void> {
     console.log(`[MQTT:${this.userId}] Shutting down...`);
+
+    if (this.deviceWatchInterval) {
+      clearInterval(this.deviceWatchInterval);
+      this.deviceWatchInterval = null;
+    }
 
     if (this.client) {
       for (const serial of this.userDeviceSerials) {
