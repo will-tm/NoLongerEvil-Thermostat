@@ -13,7 +13,7 @@
 
 import * as mqtt from 'mqtt';
 import type { DeviceStateService } from '../../services/DeviceStateService';
-import { resolveDeviceName, getDeviceTemperatureScale } from './helpers';
+import { resolveDeviceName } from './helpers';
 
 /**
  * Build Home Assistant discovery payload for climate entity (main thermostat control)
@@ -21,9 +21,10 @@ import { resolveDeviceName, getDeviceTemperatureScale } from './helpers';
 export function buildClimateDiscovery(
   serial: string,
   deviceName: string,
-  topicPrefix: string,
-  temperatureUnit: 'C' | 'F'
+  topicPrefix: string
 ): any {
+  // Always use Celsius - HA handles display conversion based on user preferences
+  // This avoids double-conversion bugs when Nest display unit changes
   return {
     // Unique identifier
     unique_id: `nolongerevil_${serial}`,
@@ -50,8 +51,9 @@ export function buildClimateDiscovery(
       payload_not_available: 'offline',
     },
 
-    // Temperature unit (user's preference)
-    temperature_unit: temperatureUnit,
+    // Temperature unit - always Celsius (Nest internal format)
+    // HA will convert to user's display preference automatically
+    temperature_unit: 'C',
 
     // Precision (0.5 for Nest)
     precision: 0.5,
@@ -93,9 +95,9 @@ export function buildClimateDiscovery(
     preset_mode_state_topic: `${topicPrefix}/${serial}/ha/preset`,
     preset_modes: ['home', 'away', 'eco'],
 
-    // Min/max temperature (typical Nest range in Celsius, HA will convert if needed)
-    min_temp: temperatureUnit === 'C' ? 9 : 48,
-    max_temp: temperatureUnit === 'C' ? 32 : 90,
+    // Min/max temperature in Celsius (typical Nest range)
+    min_temp: 9,
+    max_temp: 32,
 
     // Optimistic mode
     optimistic: false,
@@ -110,8 +112,7 @@ export function buildClimateDiscovery(
  */
 export function buildTemperatureSensorDiscovery(
   serial: string,
-  topicPrefix: string,
-  temperatureUnit: 'C' | 'F'
+  topicPrefix: string
 ): any {
   return {
     unique_id: `nolongerevil_${serial}_temperature`,
@@ -123,7 +124,7 @@ export function buildTemperatureSensorDiscovery(
     },
 
     state_topic: `${topicPrefix}/${serial}/ha/current_temperature`,
-    unit_of_measurement: `°${temperatureUnit}`,
+    unit_of_measurement: '°C',
     device_class: 'temperature',
     state_class: 'measurement',
 
@@ -173,8 +174,7 @@ export function buildHumiditySensorDiscovery(
  */
 export function buildOutdoorTemperatureSensorDiscovery(
   serial: string,
-  topicPrefix: string,
-  temperatureUnit: 'C' | 'F'
+  topicPrefix: string
 ): any {
   return {
     unique_id: `nolongerevil_${serial}_outdoor_temperature`,
@@ -186,7 +186,7 @@ export function buildOutdoorTemperatureSensorDiscovery(
     },
 
     state_topic: `${topicPrefix}/${serial}/ha/outdoor_temperature`,
-    unit_of_measurement: `°${temperatureUnit}`,
+    unit_of_measurement: '°C',
     device_class: 'temperature',
     state_class: 'measurement',
 
@@ -305,14 +305,14 @@ export async function publishThermostatDiscovery(
   discoveryPrefix: string
 ): Promise<void> {
   try {
-    // Resolve device name and temperature scale
+    // Resolve device name
     const deviceName = await resolveDeviceName(serial, deviceState);
-    const temperatureUnit = await getDeviceTemperatureScale(serial, deviceState);
 
-    console.log(`[HA Discovery] Publishing discovery for ${serial} (${deviceName}, ${temperatureUnit})`);
+    console.log(`[HA Discovery] Publishing discovery for ${serial} (${deviceName})`);
 
     // Climate entity (main thermostat control)
-    const climateConfig = buildClimateDiscovery(serial, deviceName, topicPrefix, temperatureUnit);
+    // Always uses Celsius - HA handles user display preferences
+    const climateConfig = buildClimateDiscovery(serial, deviceName, topicPrefix);
     await publishDiscoveryMessage(
       client,
       `${discoveryPrefix}/climate/nest_${serial}/thermostat/config`,
@@ -320,7 +320,7 @@ export async function publishThermostatDiscovery(
     );
 
     // Temperature sensor
-    const tempConfig = buildTemperatureSensorDiscovery(serial, topicPrefix, temperatureUnit);
+    const tempConfig = buildTemperatureSensorDiscovery(serial, topicPrefix);
     await publishDiscoveryMessage(
       client,
       `${discoveryPrefix}/sensor/nest_${serial}/temperature/config`,
@@ -336,7 +336,7 @@ export async function publishThermostatDiscovery(
     );
 
     // Outdoor temperature sensor
-    const outdoorTempConfig = buildOutdoorTemperatureSensorDiscovery(serial, topicPrefix, temperatureUnit);
+    const outdoorTempConfig = buildOutdoorTemperatureSensorDiscovery(serial, topicPrefix);
     await publishDiscoveryMessage(
       client,
       `${discoveryPrefix}/sensor/nest_${serial}/outdoor_temperature/config`,

@@ -80,62 +80,6 @@ export async function resolveDeviceName(
 }
 
 /**
- * Get device temperature scale (C or F)
- */
-export async function getDeviceTemperatureScale(
-  serial: string,
-  deviceState: DeviceStateService
-): Promise<'C' | 'F'> {
-  try {
-    const deviceObj = await deviceState.get(serial, `device.${serial}`);
-    const scale = deviceObj?.value?.temperature_scale;
-    return scale === 'F' ? 'F' : 'C'; // Default to Celsius
-  } catch (error) {
-    console.error(`[MQTT Helpers] Error getting temperature scale for ${serial}:`, error);
-    return 'C';
-  }
-}
-
-/**
- * Convert Celsius to Fahrenheit
- */
-export function celsiusToFahrenheit(celsius: number): number {
-  return celsius * 9 / 5 + 32;
-}
-
-/**
- * Convert Fahrenheit to Celsius
- */
-export function fahrenheitToCelsius(fahrenheit: number): number {
-  return (fahrenheit - 32) * 5 / 9;
-}
-
-/**
- * Convert temperature from Celsius to device's preferred scale
- */
-export function convertTemperature(celsius: number | null | undefined, targetScale: 'C' | 'F'): number | null {
-  if (celsius === null || celsius === undefined || typeof celsius !== 'number') {
-    return null;
-  }
-
-  if (targetScale === 'F') {
-    return Math.round(celsiusToFahrenheit(celsius) * 10) / 10; // Round to 1 decimal
-  }
-
-  return Math.round(celsius * 10) / 10; // Round to 1 decimal
-}
-
-/**
- * Convert temperature to Celsius from the given scale
- */
-export function convertToCelsius(temp: number, fromScale: 'C' | 'F'): number {
-  if (fromScale === 'F') {
-    return fahrenheitToCelsius(temp);
-  }
-  return temp;
-}
-
-/**
  * Map Nest mode to Home Assistant HVAC mode
  * Nest: "off", "heat", "cool", "range"
  * HA: "off", "heat", "cool", "heat_cool"

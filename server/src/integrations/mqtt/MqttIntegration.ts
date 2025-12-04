@@ -25,9 +25,6 @@ import {
 } from './topicBuilder';
 import { publishThermostatDiscovery, removeDeviceDiscovery } from './HomeAssistantDiscovery';
 import {
-  getDeviceTemperatureScale,
-  convertTemperature,
-  convertToCelsius,
   nestModeToHA,
   haModeToNest,
   deriveHvacAction,
@@ -390,8 +387,8 @@ export class MqttIntegration extends BaseIntegration {
         return;
       }
 
-      const tempScale = await getDeviceTemperatureScale(serial, this.deviceState);
-
+      // HA sends temperatures in Celsius (as declared in discovery config)
+      // No conversion needed - just validate and pass through
       switch (command) {
         case 'mode':
           const nestMode = haModeToNest(valueStr);
@@ -399,17 +396,17 @@ export class MqttIntegration extends BaseIntegration {
           break;
 
         case 'target_temperature':
-          const tempC = validateTemperature(convertToCelsius(parseFloat(valueStr), tempScale), sharedObj.value);
+          const tempC = validateTemperature(parseFloat(valueStr), sharedObj.value);
           await this.updateSharedValue(serial, sharedObj, 'target_temperature', tempC);
           break;
 
         case 'target_temperature_low':
-          const tempLowC = validateTemperature(convertToCelsius(parseFloat(valueStr), tempScale), sharedObj.value);
+          const tempLowC = validateTemperature(parseFloat(valueStr), sharedObj.value);
           await this.updateSharedValue(serial, sharedObj, 'target_temperature_low', tempLowC);
           break;
 
         case 'target_temperature_high':
-          const tempHighC = validateTemperature(convertToCelsius(parseFloat(valueStr), tempScale), sharedObj.value);
+          const tempHighC = validateTemperature(parseFloat(valueStr), sharedObj.value);
           await this.updateSharedValue(serial, sharedObj, 'target_temperature_high', tempHighC);
           break;
 
@@ -575,6 +572,8 @@ export class MqttIntegration extends BaseIntegration {
 
   /**
    * Publish Home Assistant formatted state for a device
+   * All temperatures are published in Celsius (Nest's internal format)
+   * HA handles display conversion based on user preferences
    */
   private async publishHomeAssistantState(serial: string): Promise<void> {
     if (!this.client || !this.isReady) {
@@ -600,10 +599,10 @@ export class MqttIntegration extends BaseIntegration {
       const device = deviceObj.value || {};
       const shared = sharedObj.value || {};
 
-      const tempScale = await getDeviceTemperatureScale(serial, this.deviceState);
-
-      const currentTemp = convertTemperature(shared.current_temperature || device.current_temperature, tempScale);
-      if (currentTemp !== null) {
+      // Publish temperatures in Celsius (Nest's internal format)
+      // HA discovery declares temperature_unit: C, so HA will convert for display
+      const currentTemp = shared.current_temperature ?? device.current_temperature;
+      if (currentTemp !== null && currentTemp !== undefined) {
         await this.publish(`${prefix}/${serial}/ha/current_temperature`, String(currentTemp), { retain: true, qos: 0 });
       }
 
@@ -611,19 +610,16 @@ export class MqttIntegration extends BaseIntegration {
         await this.publish(`${prefix}/${serial}/ha/current_humidity`, String(device.current_humidity), { retain: true, qos: 0 });
       }
 
-      const targetTemp = convertTemperature(shared.target_temperature, tempScale);
-      if (targetTemp !== null) {
-        await this.publish(`${prefix}/${serial}/ha/target_temperature`, String(targetTemp), { retain: true, qos: 0 });
+      if (shared.target_temperature !== null && shared.target_temperature !== undefined) {
+        await this.publish(`${prefix}/${serial}/ha/target_temperature`, String(shared.target_temperature), { retain: true, qos: 0 });
       }
 
-      const targetLow = convertTemperature(shared.target_temperature_low, tempScale);
-      if (targetLow !== null) {
-        await this.publish(`${prefix}/${serial}/ha/target_temperature_low`, String(targetLow), { retain: true, qos: 0 });
+      if (shared.target_temperature_low !== null && shared.target_temperature_low !== undefined) {
+        await this.publish(`${prefix}/${serial}/ha/target_temperature_low`, String(shared.target_temperature_low), { retain: true, qos: 0 });
       }
 
-      const targetHigh = convertTemperature(shared.target_temperature_high, tempScale);
-      if (targetHigh !== null) {
-        await this.publish(`${prefix}/${serial}/ha/target_temperature_high`, String(targetHigh), { retain: true, qos: 0 });
+      if (shared.target_temperature_high !== null && shared.target_temperature_high !== undefined) {
+        await this.publish(`${prefix}/${serial}/ha/target_temperature_high`, String(shared.target_temperature_high), { retain: true, qos: 0 });
       }
 
       const haMode = nestModeToHA(shared.target_temperature_type);
@@ -640,7 +636,8 @@ export class MqttIntegration extends BaseIntegration {
         await this.publish(`${prefix}/${serial}/ha/preset`, preset, { retain: true, qos: 0 });
       }
 
-      let outdoorTempCelsius = device.outdoor_temperature || shared.outside_temperature || device.outside_temperature;
+      // Outdoor temperature (already in Celsius)
+      let outdoorTempCelsius = device.outdoor_temperature ?? shared.outside_temperature ?? device.outside_temperature;
 
       if (outdoorTempCelsius === undefined || outdoorTempCelsius === null) {
         try {
@@ -653,9 +650,8 @@ export class MqttIntegration extends BaseIntegration {
         }
       }
 
-      const outdoorTemp = convertTemperature(outdoorTempCelsius, tempScale);
-      if (outdoorTemp !== null) {
-        await this.publish(`${prefix}/${serial}/ha/outdoor_temperature`, String(outdoorTemp), { retain: true, qos: 0 });
+      if (outdoorTempCelsius !== null && outdoorTempCelsius !== undefined) {
+        await this.publish(`${prefix}/${serial}/ha/outdoor_temperature`, String(outdoorTempCelsius), { retain: true, qos: 0 });
       }
 
       const isAway = await isDeviceAway(serial, this.deviceState);
