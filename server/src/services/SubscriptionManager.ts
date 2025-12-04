@@ -48,7 +48,7 @@ export class SubscriptionManager {
     });
 
     console.log(
-      `[SubscriptionManager] Added subscription for ${serial} (session: ${subscription.sessionId}, total: ${
+      `[${new Date().toISOString()}] [SubscriptionManager] Opened subscription for ${serial} (session: ${subscription.sessionId}, total for device: ${
         this.subscriptions.get(serial)!.length
       })`
     );
@@ -160,7 +160,7 @@ export class SubscriptionManager {
     }
 
     if (removed > 0) {
-      console.log(`[SubscriptionManager] Removed ${removed} subscription(s) for ${serial} (connection closed)`);
+      console.log(`[${new Date().toISOString()}] [SubscriptionManager] Closed subscription for ${serial} (connection closed by client, remaining: ${filtered.length})`);
     }
   }
 
@@ -182,9 +182,11 @@ export class SubscriptionManager {
         if (age > timeout || sub.res.writableEnded || sub.res.destroyed) {
           if (!sub.res.writableEnded && !sub.res.destroyed) {
             try {
+              console.log(`[${new Date().toISOString()}] [SubscriptionManager] Timed out subscription for ${serial} (age: ${Math.round(age / 1000)}s)`);
               sub.res.writeHead(408, { 'Content-Type': 'text/plain' });
               sub.res.end('Request Timeout');
             } catch (error) {
+              // Ignore errors if connection is already gone
             }
           }
           totalRemoved++;

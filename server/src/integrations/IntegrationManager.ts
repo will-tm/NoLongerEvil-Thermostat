@@ -200,6 +200,27 @@ export class IntegrationManager {
   }
 
   /**
+   * Notify integrations of device availability change
+   */
+  async notifyAvailabilityChange(serial: string, isAvailable: boolean): Promise<void> {
+    console.log(`[IntegrationManager] Device ${serial} availability changed: ${isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}`);
+    
+    const promises = Array.from(this.integrations.values()).map(async (integration) => {
+      try {
+        if (isAvailable) {
+          await integration.onDeviceConnected(serial);
+        } else {
+          await integration.onDeviceDisconnected(serial);
+        }
+      } catch (error) {
+        console.error(`[IntegrationManager] Error notifying availability change for ${serial}:`, error);
+      }
+    });
+
+    await Promise.all(promises);
+  }
+
+  /**
    * Reload integrations from database (hot reload)
    */
   async reload(): Promise<void> {

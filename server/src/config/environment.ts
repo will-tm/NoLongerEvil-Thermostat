@@ -59,10 +59,11 @@ export const environment: EnvironmentConfig = {
   ENTRY_KEY_TTL_SECONDS: getEnvInt('ENTRY_KEY_TTL_SECONDS', 3600),
   WEATHER_CACHE_TTL_MS: getEnvInt('WEATHER_CACHE_TTL_MS', 10 * 60 * 1000), // 10 minutes
 
-  SUBSCRIPTION_TIMEOUT_MS: getEnvInt('SUBSCRIPTION_TIMEOUT_MS', 5 * 60 * 1000), // 5 minutes
+  SUBSCRIPTION_TIMEOUT_MS: process.env.SUBSCRIPTION_TIMEOUT_MS ? parseInt(process.env.SUBSCRIPTION_TIMEOUT_MS, 10) : Number.POSITIVE_INFINITY, // Default: No timeout
   MAX_SUBSCRIPTIONS_PER_DEVICE: getEnvInt('MAX_SUBSCRIPTIONS_PER_DEVICE', 100),
 
   DEBUG_LOGGING: getEnvBoolean('DEBUG_LOGGING', false),
+  DEBUG_LOGS_DIR: getEnvString('DEBUG_LOGS_DIR', './data/debug-logs'),
 
   SQLITE3_ENABLED: getEnvBoolean('SQLITE3_ENABLED', true),
   SQLITE3_DB_PATH: getEnvString('SQLITE3_DB_PATH', './data/database.sqlite'),
@@ -109,4 +110,7 @@ export function validateEnvironment(): void {
   }
   console.log(`[Config] TLS Certificates: ${environment.CERT_DIR || 'Not configured (HTTP only)'}`);
   console.log(`[Config] Debug Logging: ${environment.DEBUG_LOGGING ? 'Enabled' : 'Disabled'}`);
+  if (environment.DEBUG_LOGGING) {
+    console.log(`[Config] Debug Logs Directory: ${environment.DEBUG_LOGS_DIR}`);
+  }
 }

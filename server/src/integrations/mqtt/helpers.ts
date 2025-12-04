@@ -123,6 +123,38 @@ export function haModeToNest(haMode: string | undefined): string {
 }
 
 /**
+ * Derive fan mode from device state
+ * Returns: "on" or "auto"
+ */
+export async function deriveFanMode(
+  serial: string,
+  deviceState: DeviceStateService
+): Promise<string> {
+  try {
+    const deviceObj = await deviceState.get(serial, `device.${serial}`);
+    const device = deviceObj?.value || {};
+
+    // Fan mode is "on" if:
+    // 1. Fan timer has time remaining (fan_timer_timeout > now) - PRIORITY CHECK
+    // 2. Fan control is enabled (fan_control_state from device) - PRIORITY CHECK
+    // 
+    // We prioritize the commanded state (fan_timer_timeout, fan_control_state) over
+    // the physical state (hvac_fan_state) because the thermostat may lag behind
+    // server commands by up to 2 minutes due to battery-saving update delays.
+    
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const hasFanTimer = typeof device.fan_timer_timeout === 'number' && device.fan_timer_timeout > nowSeconds;
+    
+    const isFanModeOn = hasFanTimer || device.fan_control_state;
+    
+    return isFanModeOn ? 'on' : 'auto';
+  } catch (error) {
+    console.error(`[MQTT Helpers] Error deriving fan mode for ${serial}:`, error);
+    return 'auto';
+  }
+}
+
+/**
  * Derive HVAC action from device state
  * Returns: "off", "heating", "cooling", "fan", "idle"
  */
@@ -131,38 +163,46 @@ export async function deriveHvacAction(
   deviceState: DeviceStateService
 ): Promise<string> {
   try {
-    const deviceObj = await deviceState.get(serial, `device.${serial}`);
     const sharedObj = await deviceState.get(serial, `shared.${serial}`);
-
-    const device = deviceObj?.value || {};
+    const deviceObj = await deviceState.get(serial, `device.${serial}`);
     const shared = sharedObj?.value || {};
+    const device = deviceObj?.value || {};
 
     const mode = shared.target_temperature_type || '';
     if (mode === 'off') {
       return 'off';
     }
 
+    // HVAC state fields are in the shared object, not device
     const isHeating =
-      device.hvac_heater_state ||
-      device.hvac_heat_x2_state ||
-      device.hvac_heat_x3_state ||
-      device.hvac_aux_heater_state ||
-      device.hvac_alt_heat_state;
+      shared.hvac_heater_state ||
+      shared.hvac_heat_x2_state ||
+      shared.hvac_heat_x3_state ||
+      shared.hvac_aux_heater_state ||
+      shared.hvac_alt_heat_state;
 
     if (isHeating) {
       return 'heating';
     }
 
     const isCooling =
-      device.hvac_ac_state ||
-      device.hvac_cool_x2_state ||
-      device.hvac_cool_x3_state;
+      shared.hvac_ac_state ||
+      shared.hvac_cool_x2_state ||
+      shared.hvac_cool_x3_state;
 
     if (isCooling) {
       return 'cooling';
     }
 
-    if (device.hvac_fan_state) {
+    // Fan is running if fan timer is active or fan control is enabled
+    // We prioritize the commanded state (fan_timer_timeout, fan_control_state) over
+    // the physical state (hvac_fan_state) because the thermostat may lag behind
+    // server commands by up to 2 minutes due to battery-saving update delays.
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const hasFanTimer = typeof device.fan_timer_timeout === 'number' && device.fan_timer_timeout > nowSeconds;
+    const isFanRunning = hasFanTimer || device.fan_control_state;
+    
+    if (isFanRunning) {
       return 'fan';
     }
 
@@ -203,15 +243,15 @@ export async function isHeatingActive(
   deviceState: DeviceStateService
 ): Promise<boolean> {
   try {
-    const deviceObj = await deviceState.get(serial, `device.${serial}`);
-    const device = deviceObj?.value || {};
+    const sharedObj = await deviceState.get(serial, `shared.${serial}`);
+    const shared = sharedObj?.value || {};
 
     return Boolean(
-      device.hvac_heater_state ||
-      device.hvac_heat_x2_state ||
-      device.hvac_heat_x3_state ||
-      device.hvac_aux_heater_state ||
-      device.hvac_alt_heat_state
+      shared.hvac_heater_state ||
+      shared.hvac_heat_x2_state ||
+      shared.hvac_heat_x3_state ||
+      shared.hvac_aux_heater_state ||
+      shared.hvac_alt_heat_state
     );
   } catch (error) {
     console.error(`[MQTT Helpers] Error checking heating status for ${serial}:`, error);
@@ -227,13 +267,13 @@ export async function isCoolingActive(
   deviceState: DeviceStateService
 ): Promise<boolean> {
   try {
-    const deviceObj = await deviceState.get(serial, `device.${serial}`);
-    const device = deviceObj?.value || {};
+    const sharedObj = await deviceState.get(serial, `shared.${serial}`);
+    const shared = sharedObj?.value || {};
 
     return Boolean(
-      device.hvac_ac_state ||
-      device.hvac_cool_x2_state ||
-      device.hvac_cool_x3_state
+      shared.hvac_ac_state ||
+      shared.hvac_cool_x2_state ||
+      shared.hvac_cool_x3_state
     );
   } catch (error) {
     console.error(`[MQTT Helpers] Error checking cooling status for ${serial}:`, error);
