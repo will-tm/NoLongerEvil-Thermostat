@@ -15,6 +15,7 @@ import { DeviceStateChange, MqttConfig } from '../types';
 import { DeviceStateService } from '../../services/DeviceStateService';
 import { AbstractDeviceStateManager } from '@/services/AbstractDeviceStateManager';
 import { SubscriptionManager } from '../../services/SubscriptionManager';
+import { validateTemperature } from '../../utils/temperatureSafety';
 import {
   parseObjectKey,
   buildStateTopic,
@@ -26,6 +27,7 @@ import { publishThermostatDiscovery, removeDeviceDiscovery } from './HomeAssista
 import {
   getDeviceTemperatureScale,
   convertTemperature,
+  convertToCelsius,
   nestModeToHA,
   haModeToNest,
   deriveHvacAction,
@@ -397,23 +399,17 @@ export class MqttIntegration extends BaseIntegration {
           break;
 
         case 'target_temperature':
-          const tempC = tempScale === 'F'
-            ? (parseFloat(valueStr) - 32) * 5 / 9
-            : parseFloat(valueStr);
+          const tempC = validateTemperature(convertToCelsius(parseFloat(valueStr), tempScale), sharedObj.value);
           await this.updateSharedValue(serial, sharedObj, 'target_temperature', tempC);
           break;
 
         case 'target_temperature_low':
-          const tempLowC = tempScale === 'F'
-            ? (parseFloat(valueStr) - 32) * 5 / 9
-            : parseFloat(valueStr);
+          const tempLowC = validateTemperature(convertToCelsius(parseFloat(valueStr), tempScale), sharedObj.value);
           await this.updateSharedValue(serial, sharedObj, 'target_temperature_low', tempLowC);
           break;
 
         case 'target_temperature_high':
-          const tempHighC = tempScale === 'F'
-            ? (parseFloat(valueStr) - 32) * 5 / 9
-            : parseFloat(valueStr);
+          const tempHighC = validateTemperature(convertToCelsius(parseFloat(valueStr), tempScale), sharedObj.value);
           await this.updateSharedValue(serial, sharedObj, 'target_temperature_high', tempHighC);
           break;
 

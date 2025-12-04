@@ -97,6 +97,20 @@ export async function getDeviceTemperatureScale(
 }
 
 /**
+ * Convert Celsius to Fahrenheit
+ */
+export function celsiusToFahrenheit(celsius: number): number {
+  return celsius * 9 / 5 + 32;
+}
+
+/**
+ * Convert Fahrenheit to Celsius
+ */
+export function fahrenheitToCelsius(fahrenheit: number): number {
+  return (fahrenheit - 32) * 5 / 9;
+}
+
+/**
  * Convert temperature from Celsius to device's preferred scale
  */
 export function convertTemperature(celsius: number | null | undefined, targetScale: 'C' | 'F'): number | null {
@@ -105,10 +119,20 @@ export function convertTemperature(celsius: number | null | undefined, targetSca
   }
 
   if (targetScale === 'F') {
-    return Math.round((celsius * 9 / 5 + 32) * 10) / 10; // Round to 1 decimal
+    return Math.round(celsiusToFahrenheit(celsius) * 10) / 10; // Round to 1 decimal
   }
 
   return Math.round(celsius * 10) / 10; // Round to 1 decimal
+}
+
+/**
+ * Convert temperature to Celsius from the given scale
+ */
+export function convertToCelsius(temp: number, fromScale: 'C' | 'F'): number {
+  if (fromScale === 'F') {
+    return fahrenheitToCelsius(temp);
+  }
+  return temp;
 }
 
 /**
